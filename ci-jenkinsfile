@@ -1,0 +1,121 @@
+pipeline {
+    agent any
+
+    tools {
+        jdk 'jdk'
+        maven 'maven'
+    }
+
+    environment {
+        SCANNER_HOME = tool 'sonarqube'
+    }
+
+    stages {
+        stage('git checkout') {
+            steps {
+                git branch: 'main', changelog: false, poll: false, url: 'https://github.com/jaiswaladi246/Ekart.git'
+            }
+        }
+
+        stage('compile') {
+            steps {
+                script {
+                    if (isUnix()) {
+                        sh 'mvn clean compile'
+                    } else {
+                        bat 'mvn clean compile'
+                    }
+                }
+            }
+        }
+
+        stage('sonarqube') {
+            steps {
+                script {
+                    if (isUnix()) {
+                        sh """$SCANNER_HOME/bin/sonar-scanner \
+                        -Dsonar.host.url=http://localhost:9001 \
+                        -Dsonar.token=squ_086d278278a339303ac4ca0563ef412b189fe976 \
+                        -Dsonar.projectKey=ekart \
+                        -Dsonar.projectName=ekart \
+                        -Dsonar.java.binaries=. """
+                    } else {
+                        bat """%SCANNER_HOME%\\bin\\sonar-scanner.bat ^
+                        -Dsonar.host.url=http://localhost:9001 ^
+                        -Dsonar.token=squ_086d278278a339303ac4ca0563ef412b189fe976 ^
+                        -Dsonar.projectKey=ekart ^
+                        -Dsonar.projectName=ekart ^
+                        -Dsonar.java.binaries=. """
+                    }
+                }
+            }
+        }
+
+        stage('owasp') {
+            steps {
+                dependencyCheck additionalArguments: ' --scan ./', odcInstallation: 'dp'
+                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+            }
+        }
+
+        stage('build') {
+            steps {
+                script {
+                    if (isUnix()) {
+                        sh 'mvn clean install -DskipTests=true'
+                    } else {
+                        bat 'mvn clean install -DskipTests=true'
+                    }
+                }
+            }
+        }
+
+        stage('bpd') {
+            steps {
+                script {
+                    // Use system docker instead of Jenkins Docker Tool client
+                    def dockerBin = '/usr/bin/docker'
+
+                    // DOCKER HUB CREDENTIALS
+                    withCredentials([usernamePassword(credentialsId: '699a886a-f1a8-4632-b0e9-9e5aae1da6e5', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+
+                        if (isUnix()) {
+                            sh """
+                                ${dockerBin} login -u ${DOCKER_USER} -p ${DOCKER_PASS}
+                                ${dockerBin} build -t shopping:latest -f docker/Dockerfile .
+                                ${dockerBin} tag shopping:latest sufi0/shopping:latest
+                                ${dockerBin} push sufi0/shopping:latest
+                            """
+                        } else {
+                            bat """
+                                ${dockerBin} login -u %DOCKER_USER% -p %DOCKER_PASS%
+                                ${dockerBin} build -t shopping:latest -f docker\\Dockerfile .
+                                ${dockerBin} tag shopping:latest sufi0/shopping:latest
+                                ${dockerBin} push sufi0/shopping:latest
+                            """
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('trigger') {
+            steps {
+                build job: "cd-pipeline", wait: true
+            }
+        }
+    } // end stages
+
+    post {
+        always {
+            script {
+                if (isUnix()) {
+                    sh 'echo Pipeline finished'
+                } else {
+                    bat 'echo Pipeline finished & echo Exit code %ERRORLEVEL%'
+                }
+            }
+        }
+    }
+}
+

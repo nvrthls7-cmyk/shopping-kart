@@ -1,0 +1,35 @@
+pipeline {
+    agent any
+
+    stages {
+        stage('deploy') {
+            steps {
+                script {
+                    // Use system docker binary directly to avoid old Jenkins Docker Tool client
+                    def dockerBin = '/usr/bin/docker'
+
+                    // use the existing Jenkins credential for Docker Hub
+                    withCredentials([usernamePassword(credentialsId: '699a886a-f1a8-4632-b0e9-9e5aae1da6e5',
+                                                     usernameVariable: 'DOCKER_USER',
+                                                     passwordVariable: 'DOCKER_PASS')]) {
+
+                        if (isUnix()) {
+                            sh """
+                                ${dockerBin} login -u ${DOCKER_USER} -p ${DOCKER_PASS}
+                                ${dockerBin} rm -f shopping-cart || true
+                                ${dockerBin} run -d --name shopping-cart -p 8070:8070 sufi0/shopping:latest
+                            """
+                        } else {
+                            bat """
+                                ${dockerBin} login -u %DOCKER_USER% -p %DOCKER_PASS%
+                                ${dockerBin} rm -f shopping-cart || exit 0
+                                ${dockerBin} run -d --name shopping-cart -p 8070:8070 sufi0/shopping:latest
+                            """
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
